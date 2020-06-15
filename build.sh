@@ -1,1 +1,1 @@
-clang -O3 -o endo main.c
+clang -O0 -o endo main.c -lm
