@@ -74,7 +74,7 @@ static char *read_file(char *filename, size_t *file_size) {
 
 #define max(x, y) (((x) > (y)) ? (x) : (y))
 
-enum {
+typedef enum {
 	ADD_COLOR_BLACK       = get_rna_seq("PIPIIIC"),
 	ADD_COLOR_RED         = get_rna_seq("PIPIIIP"),
 	ADD_COLOR_GREEN       = get_rna_seq("PIPIICC"),
@@ -95,7 +95,33 @@ enum {
 	ADD_BITMAP       	  = get_rna_seq("PCCPFFP"),
 	COMPOSE       	      = get_rna_seq("PFFPCCP"),
 	CLIP       	      	  = get_rna_seq("PFFICCF"),
-};
+} inst_t;
+
+static char *get_inst_name(inst_t inst) {
+	switch (inst) {
+		case ADD_COLOR_BLACK:       return "Add Color: Black";
+		case ADD_COLOR_RED:         return "Add Color: Red";
+		case ADD_COLOR_GREEN:       return "Add Color: Green";
+		case ADD_COLOR_YELLOW:      return "Add Color: Yellow";
+		case ADD_COLOR_BLUE:        return "Add Color: Blue";
+		case ADD_COLOR_MAGENTA:     return "Add Color: Magenta";
+		case ADD_COLOR_CYAN:        return "Add Color: Cyan";
+		case ADD_COLOR_WHITE:       return "Add Color: White";
+		case ADD_ALPHA_TRANSPARENT: return "Add Alpha: Transparent";
+		case ADD_ALPHA_OPAQUE:      return "Add Alpha: Opaque";
+		case CLEAR_BUCKET:          return "Clear Bucket";
+		case MOVE:                  return "Move";
+		case TURN_CCLOCKWISE:       return "Turn Counter-Clockwise";
+		case TURN_CLOCKWISE:        return "Turn Clockwise";
+		case MARK:                  return "Set Mark";
+		case LINE:                  return "Draw Line";
+		case FILL:                  return "Fill";
+		case ADD_BITMAP:            return "Add Bitmap";
+		case COMPOSE:               return "Compose";
+		case CLIP:                  return "Clip";
+		default:                    return NULL;
+	}
+}
 
 typedef enum {
 	DIR_N,
@@ -141,7 +167,7 @@ typedef struct {
 	dir_t dir;
 
 	int max_bitmaps;
-	int bitmap_len;
+	int bitmap_size;
 	color_t **bitmaps;
 
 	int max_colors;
@@ -231,6 +257,12 @@ static void add_color(fuun_state_t *state, color_wrap_t color) {
 	state->bucket[state->bucket_len++] = color;
 }
 
+static char color_buffer[20];
+static char *print_color(color_t col) {
+	sprintf(color_buffer, "%d, %d, %d, %d", col.r, col.g, col.b, col.a);
+	return color_buffer;
+}
+
 static color_t *process_rna(char *rna_buffer, size_t rna_size) {
 	char *rna = rna_buffer;
 
@@ -238,7 +270,7 @@ static color_t *process_rna(char *rna_buffer, size_t rna_size) {
 	state.dir = DIR_E;
 
 	state.max_bitmaps = 10;
-	state.bitmap_len = 0;
+	state.bitmap_size = 1;
 	state.bitmaps = (color_t **)emalloc(sizeof(color_t *) * state.max_bitmaps);
 	for (int i = 0; i < state.max_bitmaps; i++) {
 		state.bitmaps[i] = (color_t *)ecalloc(sizeof(color_t), BITMAP_WIDTH * BITMAP_HEIGHT);
@@ -248,7 +280,7 @@ static color_t *process_rna(char *rna_buffer, size_t rna_size) {
 	state.bucket_len = 0;
 	state.bucket = (color_wrap_t *)ecalloc(sizeof(color_wrap_t), state.max_colors);
 
-	state.max_fill_stack = BITMAP_WIDTH * BITMAP_HEIGHT * 2;
+	state.max_fill_stack = BITMAP_WIDTH * BITMAP_HEIGHT * 100;
 	state.fill_stack_len = 0;
 	state.fill_stack = (pos_t *)emalloc(sizeof(pos_t) * state.max_fill_stack);
 
@@ -259,17 +291,33 @@ static color_t *process_rna(char *rna_buffer, size_t rna_size) {
 		rna = rna_buffer + i;
 		uint64_t rna_val = get_rna_seq(rna);
 
+/*
+		//if (inst_count == 16404) {
+		//if (inst_count == 16665) {
+		//if (inst_count == 16666) {
+		if (inst_count == 17564) {
+			break;
+		}
+*/
+
+		printf("(%d) Running: %s %.*s\n", inst_count, get_inst_name(rna_val), 7, rna);
+
 		switch (rna_val) {
 			case ADD_BITMAP: {
-				//printf("Bitmap Count: %d\n", state.bitmap_len + 1);
-				if ((state.bitmap_len + 1) < state.max_bitmaps) {
-					state.bitmap_len++;
-					color_t *new_bitmap = state.bitmaps[state.bitmap_len];
+				printf("Bitmap Count: %d\n", state.bitmap_size);
+				if (state.bitmap_size < state.max_bitmaps) {
+					color_t *tmp_bmp_ptr = state.bitmaps[state.bitmap_size];
+					memmove(state.bitmaps + 1, state.bitmaps, sizeof(color_t *) * state.bitmap_size);
+
+					state.bitmaps[0] = tmp_bmp_ptr;
+					color_t *new_bitmap = state.bitmaps[0];
 					memset(new_bitmap, 0, sizeof(color_t) * BITMAP_WIDTH * BITMAP_HEIGHT);
+
+					state.bitmap_size++;
 				}
 			} break;
 			case COMPOSE: {
-				if (state.bitmap_len < 2) {
+				if (state.bitmap_size < 2) {
 					break;
 				}
 
@@ -287,13 +335,13 @@ static color_t *process_rna(char *rna_buffer, size_t rna_size) {
 
 				// Do some pointer shuffling so I don't have do free/realloc memory
 				color_t *tmp_bitmap_ptr = state.bitmaps[0];
-				memmove(state.bitmaps, state.bitmaps + 1, sizeof(color_t *) * state.max_bitmaps - 1);
-				state.bitmaps[state.max_bitmaps - 1] = tmp_bitmap_ptr;
-				state.bitmap_len--;
+
+				state.bitmap_size--;
+				memmove(state.bitmaps, state.bitmaps + 1, sizeof(color_t *) * state.bitmap_size);
+				state.bitmaps[state.bitmap_size] = tmp_bitmap_ptr;
 			} break;
 			case CLIP: {
-
-				if (state.bitmap_len < 2) {
+				if (state.bitmap_size < 2) {
 					break;
 				}
 
@@ -302,18 +350,19 @@ static color_t *process_rna(char *rna_buffer, size_t rna_size) {
 					color_t bmp2_color = state.bitmaps[1][j];
 
 					color_t new_color;
-					new_color.r = (bmp1_color.r * bmp1_color.a) / 255;
-					new_color.g = (bmp1_color.g * bmp1_color.a) / 255;
-					new_color.b = (bmp1_color.b * bmp1_color.a) / 255;
-					new_color.a = (bmp1_color.a * bmp1_color.a) / 255;
+					new_color.r = (bmp2_color.r * bmp1_color.a) / 255;
+					new_color.g = (bmp2_color.g * bmp1_color.a) / 255;
+					new_color.b = (bmp2_color.b * bmp1_color.a) / 255;
+					new_color.a = (bmp2_color.a * bmp1_color.a) / 255;
 					state.bitmaps[1][j] = new_color;
 				}
 
 				// Do some pointer shuffling so I don't have do free/realloc memory
 				color_t *tmp_bitmap_ptr = state.bitmaps[0];
-				memmove(state.bitmaps, state.bitmaps + 1, sizeof(color_t *) * state.max_bitmaps - 1);
-				state.bitmaps[state.max_bitmaps - 1] = tmp_bitmap_ptr;
-				state.bitmap_len--;
+
+				state.bitmap_size--;
+				memmove(state.bitmaps, state.bitmaps + 1, sizeof(color_t *) * state.bitmap_size);
+				state.bitmaps[state.bitmap_size] = tmp_bitmap_ptr;
 			} break;
 			case ADD_ALPHA_TRANSPARENT: {
 				add_color(&state, alpha_transparent);
@@ -347,10 +396,10 @@ static color_t *process_rna(char *rna_buffer, size_t rna_size) {
 			} break;
 			case FILL: {
 				color_t new_color = get_cur_col(&state);
+				printf("Filling with color: (%d, %d, %d, %d)\n", new_color.r, new_color.g, new_color.b, new_color.a);
 
-				color_t *cur_bitmap = state.bitmaps[state.bitmap_len];
 				int px_idx = (state.pos_y * BITMAP_HEIGHT) + state.pos_x;
-				color_t old_color = cur_bitmap[px_idx];
+				color_t old_color = state.bitmaps[0][px_idx];
 
 				if (new_color.c == old_color.c) {
 					break;
@@ -360,12 +409,10 @@ static color_t *process_rna(char *rna_buffer, size_t rna_size) {
 				state.fill_stack[0].x = state.pos_x;
 				state.fill_stack[0].y = state.pos_y;
 
-				int iter = 0;
 				while (state.fill_stack_len > 0) {
+					pos_t cur_pos = state.fill_stack[--state.fill_stack_len];
 
-					pos_t cur_pos = state.fill_stack[state.fill_stack_len--];
-
-					color_t *cur_bitmap = state.bitmaps[state.bitmap_len];
+					color_t *cur_bitmap = state.bitmaps[0];
 					int px_idx = (cur_pos.y * BITMAP_HEIGHT) + cur_pos.x;
 					color_t px_color = cur_bitmap[px_idx];
 
@@ -373,7 +420,8 @@ static color_t *process_rna(char *rna_buffer, size_t rna_size) {
 						continue;
 					}
 
-					iter++;
+					printf("checking: (%d, %d)\n", cur_pos.x, cur_pos.y);
+
 					cur_bitmap[px_idx] = new_color;
 
 					if (cur_pos.x > 0) {
@@ -399,7 +447,7 @@ static color_t *process_rna(char *rna_buffer, size_t rna_size) {
 					}
 
 					if (state.fill_stack_len > state.max_fill_stack) {
-						panic("Yikes!\n");
+						panic("%d > %d, Yikes!\n", state.fill_stack_len, state.max_fill_stack);
 					}
 				}
 			} break;
@@ -420,12 +468,13 @@ static color_t *process_rna(char *rna_buffer, size_t rna_size) {
 				int y = state.pos_y * d + offset;
 
 				color_t cur_col = get_cur_col(&state);
+				printf("Drawing line with (%s) (%d, %d) -> (%d, %d)\n", print_color(cur_col), state.pos_x, state.pos_y, state.mark_x, state.mark_y);
 
 				for (int j = 0; j < d; j++) {
 					int px_x = x / d;
 					int px_y = y / d;
 
-					color_t *cur_bitmap = state.bitmaps[state.bitmap_len];
+					color_t *cur_bitmap = state.bitmaps[0];
 					int px_idx = (px_y * BITMAP_HEIGHT) + px_x;
 					cur_bitmap[px_idx] = cur_col;
 
@@ -436,7 +485,7 @@ static color_t *process_rna(char *rna_buffer, size_t rna_size) {
 				int px_x = state.mark_x;
 				int px_y = state.mark_y;
 
-				color_t *cur_bitmap = state.bitmaps[state.bitmap_len];
+				color_t *cur_bitmap = state.bitmaps[0];
 				int px_idx = (px_y * BITMAP_HEIGHT) + px_x;
 				cur_bitmap[px_idx] = cur_col;
 
@@ -485,8 +534,6 @@ static color_t *process_rna(char *rna_buffer, size_t rna_size) {
 				}
 			} break;
 			case MOVE: {
-				int old_x = state.pos_x;
-				int old_y = state.pos_y;
 				switch (state.dir) {
 					case DIR_N: {
 						state.pos_y = (state.pos_y + BITMAP_HEIGHT - 1) % BITMAP_HEIGHT;
